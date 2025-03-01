@@ -172,7 +172,7 @@ const check1271SignatureBytes = async (
 }
 
 
-export async function getMessageHashForSafe(safeAccountAddress: string, message: string, chainId: BigInt) {
+export function getMessageHashForSafe(safeAccountAddress: string, message: string, chainId: BigInt) {
     const SAFE_MSG_TYPEHASH = "0x60b3cbf8b4a223d68d641b3b6ddf9a298e7f33710cf3d3a9d1146b5a6150fbca";
     const DOMAIN_SEPARATOR_TYPEHASH = "0x47e79534a245952e8b16893a336b85a3d9ea9fa8c573f3d803afb92a79469218";
     const domainSeparator = ethers.keccak256(ethers.AbiCoder.defaultAbiCoder().encode(

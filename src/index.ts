@@ -152,7 +152,7 @@ async function main(): Promise<void> {
   // Get Message Hash For Safe
   const message = "Hello World";
   const messageHash = hashMessage(message);
-  const safeMessageHash = await getMessageHashForSafe(smartAccount.accountAddress, messageHash, chainId);
+  const safeMessageHash = getMessageHashForSafe(smartAccount.accountAddress, messageHash, chainId);
 
   // Sign the safe message hash with passkeys
   console.log("Signing the message: ", message);
