@@ -1,20 +1,25 @@
 import * as dotenv from 'dotenv'
-import * as ethers from 'ethers'
+import {
+  getBytes,
+  hashMessage,
+  id,
+  JsonRpcProvider,
+  toBeArray,
+  toUtf8Bytes,
+  ZeroAddress
+} from "ethers"; // v6
 
 import {
   SafeAccountV0_3_0 as SafeAccount,
   MetaTransaction,
   CandidePaymaster,
-  getFunctionSelector,
-  createCallData,
   WebauthnPublicKey,
   WebauthnSignatureData,
   SignerSignaturePair,
   WebauthnDummySignerSignaturePair,
 } from "abstractionkit";
 import { UserVerificationRequirement, WebAuthnCredentials, extractClientDataFields, extractPublicKey, extractSignature } from './webauthn';
-
-import { Contract, JsonRpcProvider, hashMessage } from "ethers"; // v6
+import { getMessageHashForSafe, isValidSignature } from "./safe-utils";
 
 async function main(): Promise<void> {
   //get values from .env
@@ -35,11 +40,11 @@ async function main(): Promise<void> {
         id: 'safe.global',
       },
       user: {
-        id: ethers.getBytes(ethers.id('chucknorris')),
+        id: getBytes(id('chucknorris')),
         name: 'chucknorris',
         displayName: 'Chuck Norris',
       },
-      challenge: ethers.toBeArray(Date.now()),
+      challenge: toBeArray(Date.now()),
       pubKeyCredParams: [{ type: 'public-key', alg: -7 }],
     },
   })
@@ -64,12 +69,8 @@ async function main(): Promise<void> {
   //let smartAccount = new SafeAccount(accountAddress)
 
   console.log("Account address(sender) : " + smartAccount.accountAddress)
-
-  //create two meta transaction to mint two NFTs
-  //you can use favorite method (like ethers.js) to construct the call data 
-
   const metaTx: MetaTransaction = {
-    to: ethers.ZeroAddress,
+    to: ZeroAddress,
     value: 0n,
     data: "0x",
   }
@@ -103,7 +104,7 @@ async function main(): Promise<void> {
 
   const assertion = navigator.credentials.get({
     publicKey: {
-      challenge: ethers.getBytes(safeInitOpHash),
+      challenge: getBytes(safeInitOpHash),
       rpId: 'safe.global',
       allowCredentials: [{ type: 'public-key', id: new Uint8Array(credential.rawId) }],
       userVerification: UserVerificationRequirement.required,
@@ -143,39 +144,28 @@ async function main(): Promise<void> {
   console.log("Useroperation receipt received.")
   console.log(userOperationReceiptResult)
   if (userOperationReceiptResult.success) {
-    console.log("Two Nfts were minted. The transaction hash is : " + userOperationReceiptResult.receipt.transactionHash)
+    console.log("The account is now deployed. The transaction hash is : " + userOperationReceiptResult.receipt.transactionHash)
   } else {
     console.log("Useroperation execution failed")
   }
 
-  const provider = new JsonRpcProvider(jsonRpcNodeProvider, chainId);
+  // Get Message Hash For Safe
+  const message = "Hello World";
+  const messageHash = hashMessage(message);
+  const safeMessageHash = await getMessageHashForSafe(smartAccount.accountAddress, messageHash, chainId);
 
-  const abiSmartWallet = [
-    "function isValidSignature(bytes32 _dataHash, bytes calldata _signature) external view returns (bytes4)",
-    "function getMessageHash(bytes memory message) public view returns (bytes32)"
-  ];
-
-  const safeContract = new Contract(
-    smartAccount.accountAddress,
-    abiSmartWallet,
-    provider,
-  );
-
-  const message = hashMessage("Hello World");
-  console.log(message, "message");
-
-  const safeMessageHash = await safeContract.getMessageHash(message);
-  console.log(safeMessageHash, "safeMessageHash");
-
+  // Sign the safe message hash with passkeys
+  console.log("Signing the message: ", message);
   const assertion2 = navigator.credentials.get({
     publicKey: {
-      challenge: ethers.getBytes(safeMessageHash),
+      challenge: getBytes(safeMessageHash),
       rpId: 'safe.global',
       allowCredentials: [{ type: 'public-key', id: new Uint8Array(credential.rawId) }],
       userVerification: UserVerificationRequirement.required,
     },
   })
 
+  // format the signature
   const webauthSignatureData2: WebauthnSignatureData = {
     authenticatorData: assertion2.response.authenticatorData,
     clientDataFields: extractClientDataFields(assertion2.response),
@@ -184,11 +174,29 @@ async function main(): Promise<void> {
 
   const webauthSignature2: string = SafeAccount.createWebAuthnSignature(
     webauthSignatureData2
+  );
+
+  const signerSignaturePair: SignerSignaturePair = {
+    signer: webauthPublicKey,
+    signature: webauthSignature2,
+  }
+
+  const signature = SafeAccount.buildSignaturesFromSingerSignaturePairs(
+    [signerSignaturePair],
+    { isInit: false }, // hardcoded because we know the safe account is already deployed. Else just check the nonce of the account
   )
 
-  const isValid = await SafeAccount.verifyWebAuthnSignatureForMessageHash(jsonRpcNodeProvider, webauthPublicKey, safeMessageHash, webauthSignature2);
+  console.log("Message signed and formated: ", signature)
 
-  console.log(isValid, "isValid");
+  // verify that the signature is valid
+  const validSignature = await isValidSignature(
+    smartAccount.accountAddress,
+    toUtf8Bytes(message),
+    getBytes(signature),
+    new JsonRpcProvider(jsonRpcNodeProvider)
+  );
+
+  console.log("Is the signature valid? ", validSignature);
 }
 
 main()
